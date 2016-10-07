@@ -1,0 +1,240 @@
+<html ng-app="myApp">
+  <head>
+    <style>
+
+    body {
+      font: 10px sans-serif;
+    }
+
+    .group-tick line {
+      stroke: #000;
+    }
+
+    .ribbons {
+      fill-opacity: 0.67;
+    }
+
+    </style>
+    <script src="https://d3js.org/d3.v4.0.0-alpha.50.min.js"></script>
+<script src="https://d3js.org/d3-array.v1.min.js"></script>
+<script src="https://d3js.org/d3-path.v1.min.js"></script>
+<script src="https://d3js.org/d3-chord.v1.min.js"></script>
+    <script src="https://ajax.googleapis.com/ajax/libs/angularjs/1.5.8/angular.min.js"></script>
+    <script>
+    // add the filter to your application module
+angular.module('myApp', ['filters']);
+
+/**
+ * Filesize Filter
+ * @Param length, default is 0
+ * @return string
+ */
+angular.module('filters', [])
+  .filter('Filesize', function () {
+    return function (size) {
+      if (isNaN(size))
+        size = 0;
+
+      if (size < 1024)
+        return size + ' Bytes';
+
+      size /= 1024;
+
+      if (size < 1024)
+        return size.toFixed(2) + ' Kb';
+
+      size /= 1024;
+
+      if (size < 1024)
+        return size.toFixed(2) + ' Mb';
+
+      size /= 1024;
+
+      if (size < 1024)
+        return size.toFixed(2) + ' Gb';
+
+      size /= 1024;
+
+      return size.toFixed(2) + ' Tb';
+    };
+  });
+    </script>
+    <script type="text/javascript">
+    var circos = function() {
+var svg = d3.select("svg"),
+    width = +svg.attr("width"),
+    height = +svg.attr("height"),
+    outerRadius = Math.min(width, height) * 0.5 - 40,
+    innerRadius = outerRadius - 30;
+svg.selectAll("*").remove();
+var formatValue = d3.formatPrefix(",.0", 1e6);
+
+var chord = d3.chord()
+    .padAngle(0.05)
+    .sortSubgroups(d3.descending);
+
+var arc = d3.arc()
+    .innerRadius(innerRadius)
+    .outerRadius(outerRadius);
+
+var ribbon = d3.ribbon()
+    .radius(innerRadius);
+
+var color = d3.scaleOrdinal()
+    .domain(d3.range(4))
+    .range(["#000000", "#FFDD89", "#957244", "#F26223"]);
+
+var g = svg.append("g")
+    .attr("transform", "translate(" + width / 2 + "," + height / 2 + ")")
+    .datum(chord(matrix));
+
+var group = g.append("g")
+    .attr("class", "groups")
+  .selectAll("g")
+    .data(function(chords) { return chords.groups; })
+  .enter().append("g");
+
+group.append("path")
+    .style("fill", function(d) { return color(d.index); })
+    .style("stroke", function(d) { return d3.rgb(color(d.index)).darker(); })
+    .attr("d", arc);
+
+var groupTick = group.selectAll(".group-tick")
+    .data(function(d) { return groupTicks(d, 1e7); })
+  .enter().append("g")
+    .attr("class", "group-tick")
+    .attr("transform", function(d) { return "rotate(" + (d.angle * 180 / Math.PI - 90) + ") translate(" + outerRadius + ",0)"; });
+
+groupTick.append("line")
+    .attr("x2", 6);
+
+groupTick
+  .filter(function(d) { return d.value % 5e3 === 0; })
+  .append("text")
+    .attr("x", 8)
+    .attr("dy", ".35em")
+    .attr("transform", function(d) { return d.angle > Math.PI ? "rotate(180) translate(-16)" : null; })
+    .style("text-anchor", function(d) { return d.angle > Math.PI ? "end" : null; })
+    .text(function(d) { return formatValue(d.value); });
+
+g.append("g")
+    .attr("class", "ribbons")
+  .selectAll("path")
+    .data(function(chords) { return chords; })
+  .enter().append("path")
+    .attr("d", ribbon)
+    .style("fill", function(d) { return color(d.target.index); })
+    .style("stroke", function(d) { return d3.rgb(color(d.target.index)).darker(); });
+};
+// Returns an array of tick angles and values for a given group and step.
+function groupTicks(d, step) {
+  var k = d.value / (d.endAngle - d.startAngle) ;
+  return d3.range(d.endAngle - d.startAngle,0 , -2*Math.PI/100).map(function(v) {
+    return {value: v*k, angle: v + d.startAngle};
+  });
+}
+
+</script>
+    <script>
+    var matrix = [];
+    var myTimeout;
+      var ws = new WebSocket("ws://raspberrypi.local:4201/");
+
+      ws.onmessage = function(event) {
+        var scope = angular.element(document.querySelector("#flows")).scope();
+
+        scope.$apply(function() {
+            var newFlow = angular.fromJson(event.data);
+            var newFlows = [];
+            var added = false;
+            for (var i=0; i<scope.flows.length; i++) {
+              if (scope.flows[i].src == newFlow.src) {
+                newFlows.push(newFlow);
+                added = true;
+              } else {
+                newFlows.push(scope.flows[i]);
+              }
+            }
+            if (!added) {
+                newFlows.push(newFlow);
+            }
+            scope.flows = newFlows;
+            matrix = [];
+            var fs = newFlows;
+            var srcs =[];
+            for (var j=0;j<fs.length;j++) { 
+              var totVol=0;
+              for (var k=0; k<fs[j].flows.length; k++) {
+                totVol += fs[j].flows[k].bytes;
+              }
+              if (totVol > 1000000) {
+                srcs.push(fs[j].src); 
+                matrix.push([]);
+              }
+            }
+            for (var j=0; j<matrix.length; j++) {
+              for (var k=0; k<matrix.length; k++) {
+                matrix[j].push(0);
+              }
+            }
+            for (var j=0;j<fs.length;j++) { 
+              for (var k=0; k<fs[j].flows.length; k++) { 
+                didx = srcs.indexOf(fs[j].flows[k].dst.split(":")[0]); 
+                sidx = srcs.indexOf(fs[j].src);
+                if (sidx >= 0 && didx >=0) { 
+                  matrix[sidx][didx] = fs[j].flows[k].bytes; 
+                }
+              } 
+            }
+            
+        });
+      }
+  </script>
+  </head>
+
+  <body>
+    <svg width="800" height="800"></svg>
+
+
+
+
+
+    <div>
+    <input type="search" ng-model="q" placeholder="filter..." />
+    <input type="search" ng-model="p" placeholder="filter..." />
+    <button onclick="circos();">Draw</button>
+      <table id="flows" ng-init='flows = []'>
+      <thead>
+        <th>Source</th>
+        <th>Direction</th>
+        <th>Destination</th>
+      </thead>
+      <tbody>
+        <tr ng-repeat="src in flows | filter:q as results">
+          <td>{{src.src}}</td><td>{{src.dir}}</td>
+          <td>
+            <table>
+            <tr ng-repeat="flow in src.flows | filter:p">
+             <td>{{flow.dst}}</td><td>{{flow.bytes | Filesize}}</td>
+            </tr>
+            </table>
+          </td>
+        <tr>
+          
+          </ul>
+        </tr>
+        </tbody>
+      </table>
+    </div>
+  </body>
+  <script>
+
+// From http://mkweb.bcgsc.ca/circos/guide/tables/
+/*var matrix = [
+  [11975,  5871, 8916, 2868],
+  [ 1951, 10048, 2060, 6171],
+  [ 8010, 16145, 8090, 8045],
+  [ 1013,   990,  940, 6907]
+];*/
+
+</html>
