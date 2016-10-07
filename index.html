@@ -1,0 +1,45 @@
+<html ng-app>
+  <head>
+    <script src="https://ajax.googleapis.com/ajax/libs/angularjs/1.5.8/angular.min.js"></script>
+    <script>
+      var ws = new WebSocket("ws://raspberrypi.local:4201/");
+
+      ws.onmessage = function(event) {
+        var scope = angular.element(document.querySelector("#flows")).scope();
+
+        scope.$apply(function() {
+            var newFlow = angular.fromJson(event.data);
+            var newFlows = [];
+            var added = false;
+            for (var i=0; i<scope.flows.length; i++) {
+              if (scope.flows[i].src == newFlow.src) {
+                newFlows.push(newFlow);
+                added = true;
+              } else {
+                newFlows.push(scope.flows[i]);
+              }
+            }
+            if (!added) {
+                newFlows.push(newFlow);
+            }
+            scope.flows = newFlows;
+        });
+      }
+  </script>
+  </head>
+
+  <body>
+    <div>
+      <ul id="flows" ng-init='flows = []'>
+        <li ng-repeat="src in flows">
+          {{src.src}}  {{src.dir}}
+          <ul>
+          <li ng-repeat="flow in src.flows">
+          {{flow.dst}} Bytes:{{flow.bytes}}
+          </li>
+          </ul>
+        </li>
+      </ul>
+    </div>
+  </body>
+</html>
