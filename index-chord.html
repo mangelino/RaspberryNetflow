@@ -15,10 +15,7 @@
     }
 
     </style>
-    <script src="https://d3js.org/d3.v4.0.0-alpha.50.min.js"></script>
-<script src="https://d3js.org/d3-array.v1.min.js"></script>
-<script src="https://d3js.org/d3-path.v1.min.js"></script>
-<script src="https://d3js.org/d3-chord.v1.min.js"></script>
+    <script src="https://d3js.org/d3.v4.min.js"></script>
     <script src="https://ajax.googleapis.com/ajax/libs/angularjs/1.5.8/angular.min.js"></script>
     <script>
     // add the filter to your application module
@@ -69,8 +66,35 @@ var svg = d3.select("svg"),
 svg.selectAll("*").remove();
 var formatValue = d3.formatPrefix(",.0", 1e6);
 
+var formatSize = function (size) {
+      if (isNaN(size))
+        size = 0;
+
+      if (size < 1024)
+        return size + ' Bytes';
+
+      size /= 1024;
+
+      if (size < 1024)
+        return size.toFixed(0) + ' Kb';
+
+      size /= 1024;
+
+      if (size < 1024)
+        return size.toFixed(0) + ' Mb';
+
+      size /= 1024;
+
+      if (size < 1024)
+        return size.toFixed(0) + ' Gb';
+
+      size /= 1024;
+
+      return size.toFixed(0) + ' Tb';
+    };
+
 var chord = d3.chord()
-    .padAngle(0.05)
+    .padAngle(0.025)
     .sortSubgroups(d3.descending);
 
 var arc = d3.arc()
@@ -80,9 +104,7 @@ var arc = d3.arc()
 var ribbon = d3.ribbon()
     .radius(innerRadius);
 
-var color = d3.scaleOrdinal()
-    .domain(d3.range(4))
-    .range(["#000000", "#FFDD89", "#957244", "#F26223"]);
+var color = d3.scaleOrdinal(d3.schemeCategory10);
 
 var g = svg.append("g")
     .attr("transform", "translate(" + width / 2 + "," + height / 2 + ")")
@@ -115,16 +137,19 @@ groupTick
     .attr("dy", ".35em")
     .attr("transform", function(d) { return d.angle > Math.PI ? "rotate(180) translate(-16)" : null; })
     .style("text-anchor", function(d) { return d.angle > Math.PI ? "end" : null; })
-    .text(function(d) { return formatValue(d.value); });
-
+    .text(function(d) { return formatSize(d.value); });
+var f1 = function(d) {
+  return color(d.target.index);
+}
 g.append("g")
     .attr("class", "ribbons")
   .selectAll("path")
     .data(function(chords) { return chords; })
   .enter().append("path")
     .attr("d", ribbon)
-    .style("fill", function(d) { return color(d.target.index); })
+    .style("fill", f1)
     .style("stroke", function(d) { return d3.rgb(color(d.target.index)).darker(); });
+
 };
 // Returns an array of tick angles and values for a given group and step.
 function groupTicks(d, step) {
