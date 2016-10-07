@@ -109,7 +109,7 @@ groupTick.append("line")
     .attr("x2", 6);
 
 groupTick
-  .filter(function(d) { return d.value % 5e3 === 0; })
+  //.filter(function(d) { return d.value % 5e3 === 0; })
   .append("text")
     .attr("x", 8)
     .attr("dy", ".35em")

@@ -1,6 +1,45 @@
-<html ng-app>
+<html ng-app="myApp">
   <head>
     <script src="https://ajax.googleapis.com/ajax/libs/angularjs/1.5.8/angular.min.js"></script>
+    <script>
+    // add the filter to your application module
+angular.module('myApp', ['filters']);
+
+/**
+ * Filesize Filter
+ * @Param length, default is 0
+ * @return string
+ */
+angular.module('filters', [])
+  .filter('Filesize', function () {
+    return function (size) {
+      if (isNaN(size))
+        size = 0;
+
+      if (size < 1024)
+        return size + ' Bytes';
+
+      size /= 1024;
+
+      if (size < 1024)
+        return size.toFixed(2) + ' Kb';
+
+      size /= 1024;
+
+      if (size < 1024)
+        return size.toFixed(2) + ' Mb';
+
+      size /= 1024;
+
+      if (size < 1024)
+        return size.toFixed(2) + ' Gb';
+
+      size /= 1024;
+
+      return size.toFixed(2) + ' Tb';
+    };
+  });
+    </script>
     <script>
       var ws = new WebSocket("ws://raspberrypi.local:4201/");
 
@@ -30,16 +69,30 @@
 
   <body>
     <div>
-      <ul id="flows" ng-init='flows = []'>
-        <li ng-repeat="src in flows">
-          {{src.src}}  {{src.dir}}
-          <ul>
-          <li ng-repeat="flow in src.flows">
-          {{flow.dst}} Bytes:{{flow.bytes}}
-          </li>
+    <input type="search" ng-model="q" placeholder="filter..." />
+    <input type="search" ng-model="p" placeholder="filter..." />
+      <table id="flows" ng-init='flows = []'>
+      <thead>
+        <th>Source</th>
+        <th>Direction</th>
+        <th>Destination</th>
+      </thead>
+      <tbody>
+        <tr ng-repeat="src in flows | filter:q as results">
+          <td>{{src.src}}</td><td>{{src.dir}}</td>
+          <td>
+            <table>
+            <tr ng-repeat="flow in src.flows | filter:p">
+             <td>{{flow.dst}}</td><td>{{flow.bytes | Filesize}}</td>
+            </tr>
+            </table>
+          </td>
+        <tr>
+          
           </ul>
-        </li>
-      </ul>
+        </tr>
+        </tbody>
+      </table>
     </div>
   </body>
 </html>
