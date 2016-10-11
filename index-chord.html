@@ -58,7 +58,51 @@ angular.module('filters', [])
   });
     </script>
     <script type="text/javascript">
+
     var circos = function() {
+      /* COMPUTE MATRIX */
+
+      var matrix = [];
+      var srcs = [];
+      var domains = [];
+      var largeFlows = [];
+
+
+      for (var j=0;j<fs.length;j++) { 
+        for (var k=0; k<fs[j].flows.length; k++) {
+          if (fs[j].flows[k].bytes > 1000000) {
+            sidx = srcs.indexOf(fs[j].src);
+            if (sidx < 0) {
+              srcs.push(fs[j].src); 
+              domains.push(fs[j].domain);
+              matrix.push([]);
+            } else {
+              domains[sidx] = fs[j].domain;
+            }
+            sidx = srcs.indexOf(fs[j].flows[k].dst)
+            if (sidx < 0) {
+              srcs.push(fs[j].flows[k].dst); 
+              domains.push("Unset");
+              matrix.push([]);
+            }
+          }
+        }
+      }
+      for (var j=0; j<matrix.length; j++) {
+        for (var k=0; k<matrix.length; k++) {
+          matrix[j].push(0);
+        }
+      }
+      for (var j=0;j<fs.length;j++) { 
+        for (var k=0; k<fs[j].flows.length; k++) { 
+          didx = srcs.indexOf(fs[j].flows[k].dst.split(":")[0]); 
+          sidx = srcs.indexOf(fs[j].src);
+          if (sidx >= 0 && didx >=0) { 
+            matrix[sidx][didx] = fs[j].flows[k].bytes; 
+          }
+        } 
+      }
+
 var svg = d3.select("svg"),
     width = +svg.attr("width"),
     height = +svg.attr("height"),
@@ -131,34 +175,15 @@ group.append("text").filter(function(d) { return d.endAngle - d.startAngle > Mat
       .style("text-anchor", function(d) { return d.angle > Math.PI ? "end" : null; })
       .style("font-weight", "bold")
       .text(function(d) { return domains[d.index]; });
-/*var groupTick = group.selectAll(".group-tick")
-    .data(function(d) { return groupTicks(d, 1e7); })
-  .enter().append("g")
-    .attr("class", "group-tick")
-    .attr("transform", function(d) { return "rotate(" + (d.angle * 180 / Math.PI - 90) + ") translate(" + outerRadius + ",0)"; });
 
-groupTick.append("line")
-    .attr("x2", 6);*/
-/*
-groupTick
-  //.filter(function(d) { return d.value % 5e3 === 0; })
-  .append("text")
-    .attr("x", 8)
-    .attr("dy", ".35em")
-    .attr("transform", function(d) { return d.angle > Math.PI ? "rotate(180) translate(-16)" : null; })
-    .style("text-anchor", function(d) { return d.angle > Math.PI ? "end" : null; })
-    .text(function(d) { return formatSize(d.value); });
-*/
-var f1 = function(d) {
-  return color(d.target.index);
-} 
+
 g.append("g")
     .attr("class", "ribbons")
   .selectAll("path")
     .data(function(chords) { return chords; })
   .enter().append("path")
     .attr("d", ribbon)
-    .style("fill", f1)
+    .style("fill", function (d) { return color(d.target.index); } )
     .style("stroke", function(d) { return d3.rgb(color(d.target.index)).darker(); });
 
 };
@@ -172,79 +197,43 @@ function groupTicks(d, step) {
 
 </script>
     <script>
-    var matrix = [];
+    
     var myTimeout;
-    var srcs;
-    var domains;
-      var ws = new WebSocket("ws://192.168.120.1:4201/");
+    
+    var flowsMap = new Map();
+    var fs;
+    var timeoutId;
 
-      ws.onmessage = function(event) {
-        var scope = angular.element(document.querySelector("#flows")).scope();
+    var ws = new WebSocket("ws://192.168.120.1:4201/");
 
-        scope.$apply(function() {
-            var newFlow = angular.fromJson(event.data);
-            var newFlows = [];
-            var added = false;
-            for (var i=0; i<scope.flows.length; i++) {
-              if (scope.flows[i].src == newFlow.src) {
-                newFlows.push(newFlow);
-                added = true;
-              } else {
-                newFlows.push(scope.flows[i]);
-              }
-            }
-            if (!added) {
-                newFlows.push(newFlow);
-            }
-            scope.flows = newFlows;
-            matrix = [];
-            var fs = newFlows;
-            var largeFlows = [];
-            srcs =[];
-            domains = [];
-            for (var j=0;j<fs.length;j++) { 
-              for (var k=0; k<fs[j].flows.length; k++) {
-                if (fs[j].flows[k].bytes > 1000000) {
-                  sidx = srcs.indexOf(fs[j].src);
-                  if (sidx < 0) {
-                    srcs.push(fs[j].src); 
-                    domains.push(fs[j].domain);
-                    matrix.push([]);
-                  } else {
-                    domains[sidx] = fs[j].domain;
-                  }
-                  sidx = srcs.indexOf(fs[j].flows[k].dst)
-                  if (sidx < 0) {
-                    srcs.push(fs[j].flows[k].dst); 
-                    domains.push("Unset");
-                    matrix.push([]);
-                  }
-                }
-              }
-            }
-            for (var j=0; j<matrix.length; j++) {
-              for (var k=0; k<matrix.length; k++) {
-                matrix[j].push(0);
-              }
-            }
-            for (var j=0;j<fs.length;j++) { 
-              for (var k=0; k<fs[j].flows.length; k++) { 
-                didx = srcs.indexOf(fs[j].flows[k].dst.split(":")[0]); 
-                sidx = srcs.indexOf(fs[j].src);
-                if (sidx >= 0 && didx >=0) { 
-                  matrix[sidx][didx] = fs[j].flows[k].bytes; 
-                }
-              } 
-            }
-            
-        });
+    ws.onmessage = function(event) {
+      var newFlow = angular.fromJson(event.data);
+      flowsMap.set(newFlow.src, newFlow);
+      if (timeoutId) {
+        window.clearTimeout(timeoutId);
       }
+      timeoutId = window.setTimeout(calculateFlows, 5000);
+    };
+
+    var calculateFlows=function() {
+      var scope = angular.element(document.querySelector("#flows")).scope();
+      scope.$apply(function() {
+      var newFlows = []
+        for (var f of flowsMap.values()) {
+          newFlows.push(f);
+        }
+        fs = newFlows;
+        scope.flows = newFlows;
+        circos();
+      });
+    };
   </script>
   </head>
 
   <body>
+  <div>
     <svg width="800" height="800"></svg>
-
+</div>
 
 
 
@@ -252,7 +241,7 @@ function groupTicks(d, step) {
     <div>
     <input type="search" ng-model="q" placeholder="filter..." />
 
-    <button onclick="circos();">Draw</button>
+   
       <table style="font-size: 0.9em;" id="flows" ng-init='flows = []'>
       <thead>
         <th style="width:120px;">Source</th>
