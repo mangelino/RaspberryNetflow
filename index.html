@@ -1,10 +1,58 @@
 <html ng-app="myApp">
   <head>
+    <style>
+
+    body {
+      font: 10px sans-serif;
+      background-color: #F0F0F0;
+      background: radial-gradient(#FAFAFA, #F0F0F0, #C0C0C0);
+    }
+
+    .group-tick line {
+      stroke: #000;
+    }
+
+    .ribbons {
+      fill-opacity: 0.67;
+    }
+
+    td {
+      vertical-align: top;
+    }
+
+    </style>
+    <script src="https://d3js.org/d3.v4.min.js"></script>
     <script src="https://ajax.googleapis.com/ajax/libs/angularjs/1.5.8/angular.min.js"></script>
     <script>
     // add the filter to your application module
 angular.module('myApp', ['filters']);
 
+var formatSize = function (size) {
+      if (isNaN(size))
+        size = 0;
+
+      if (size < 1024)
+        return size + ' B';
+
+      size /= 1024;
+
+      if (size < 1024)
+        return size.toFixed(0) + ' K';
+
+      size /= 1024;
+
+      if (size < 1024)
+        return size.toFixed(0) + ' M';
+
+      size /= 1024;
+
+      if (size < 1024)
+        return size.toFixed(0) + ' G';
+
+      size /= 1024;
+
+      return size.toFixed(0) + ' T';
+    };
 /**
  * Filesize Filter
  * @Param length, default is 0
@@ -12,78 +60,212 @@ angular.module('myApp', ['filters']);
  */
 angular.module('filters', [])
   .filter('Filesize', function () {
-    return function (size) {
-      if (isNaN(size))
-        size = 0;
-
-      if (size < 1024)
-        return size + ' Bytes';
-
-      size /= 1024;
-
-      if (size < 1024)
-        return size.toFixed(2) + ' Kb';
-
-      size /= 1024;
-
-      if (size < 1024)
-        return size.toFixed(2) + ' Mb';
-
-      size /= 1024;
-
-      if (size < 1024)
-        return size.toFixed(2) + ' Gb';
-
-      size /= 1024;
-
-      return size.toFixed(2) + ' Tb';
-    };
+    return formatSize;
   });
     </script>
-    <script>
-      var ws = new WebSocket("ws://raspberrypi.local:4201/");
+    <script type="text/javascript">
 
-      ws.onmessage = function(event) {
-        var scope = angular.element(document.querySelector("#flows")).scope();
+    var circos = function() {
+      /* COMPUTE MATRIX */
 
-        scope.$apply(function() {
-            var newFlow = angular.fromJson(event.data);
-            var newFlows = [];
-            var added = false;
-            for (var i=0; i<scope.flows.length; i++) {
-              if (scope.flows[i].src == newFlow.src) {
-                newFlows.push(newFlow);
-                added = true;
-              } else {
-                newFlows.push(scope.flows[i]);
-              }
+      var matrix = [];
+      var srcs = [];
+      var domains = [];
+      var largeFlows = [];
+
+
+      for (var j=0;j<fs.length;j++) { 
+        for (var k=0; k<fs[j].flows.length; k++) {
+          if (fs[j].flows[k].bytes > 1000000) {
+            sidx = srcs.indexOf(fs[j].src);
+            if (sidx < 0) {
+              srcs.push(fs[j].src); 
+              domains.push(fs[j].domain);
+              matrix.push([]);
+            } else {
+              domains[sidx] = fs[j].domain;
             }
-            if (!added) {
-                newFlows.push(newFlow);
+            sidx = srcs.indexOf(fs[j].flows[k].dst)
+            if (sidx < 0) {
+              srcs.push(fs[j].flows[k].dst); 
+              domains.push(fs[j].flows[k].domain);
+              matrix.push([]);
             }
-            scope.flows = newFlows;
-        });
+          }
+        }
       }
+      for (var j=0; j<matrix.length; j++) {
+        for (var k=0; k<matrix.length; k++) {
+          matrix[j].push(0);
+        }
+      }
+      for (var j=0;j<fs.length;j++) { 
+        for (var k=0; k<fs[j].flows.length; k++) { 
+          didx = srcs.indexOf(fs[j].flows[k].dst.split(":")[0]); 
+          sidx = srcs.indexOf(fs[j].src);
+          if (sidx >= 0 && didx >=0) { 
+            matrix[sidx][didx] = fs[j].flows[k].bytes; 
+          }
+        } 
+      }
+
+var svg = d3.select("svg"),
+    width = +svg.attr("width"),
+    height = +svg.attr("height"),
+    outerRadius = Math.min(width, height) * 0.5 - 90,
+    innerRadius = outerRadius - 30;
+svg.selectAll("*").remove();
+var formatValue = d3.formatPrefix(",.0", 1e6);
+
+
+
+var chord = d3.chord()
+    .padAngle(0.025)
+    .sortSubgroups(d3.descending);
+
+var arc = d3.arc()
+    .innerRadius(innerRadius)
+    .outerRadius(outerRadius);
+
+var ribbon = d3.ribbon()
+    .radius(innerRadius);
+
+var color = d3.scaleOrdinal(d3.schemeCategory20b);
+
+var g = svg.append("g")
+    .attr("transform", "translate(" + width / 2 + "," + height / 2 + ")")
+    .datum(chord(matrix));
+
+var group = g.append("g")
+    .attr("class", "groups")
+  .selectAll("g")
+    .data(function(chords) { return chords.groups; })
+  .enter().append("g");
+
+group.append("path")
+    .style("fill", function(d) { return color(d.index); })
+    .style("stroke", function(d) { return d3.rgb(color(d.index)).darker(); })
+    .attr("d", arc);
+
+group.append("text")
+      .each(function(d) { d.angle = (d.startAngle + d.endAngle) / 2; })
+      .attr("dy", ".35em")
+      .attr("transform", function(d) {
+        return "rotate(" + (d.angle * 180 / Math.PI - 90) + ")"
+            + "translate(" + (outerRadius + 10) + ")"
+            + (d.angle > Math.PI ? "rotate(180)" : "");
+      })
+      .style("text-anchor", function(d) { return d.angle > Math.PI ? "end" : null; })
+      .text(function(d) { return srcs[d.index]; });
+
+group.append("text").filter(function(d) { return d.endAngle - d.startAngle > Math.PI/40;})
+      .each(function(d) { d.angle = (d.startAngle + d.endAngle) / 2 - 0.035; })
+      .attr("dy", ".35em")
+      .attr("transform", function(d) {
+        return "rotate(" + (d.angle * 180 / Math.PI - 90) + ")"
+            + "translate(" + (outerRadius + 10) + ")"
+            + (d.angle > Math.PI ? "rotate(180)" : "");
+      })
+      .style("text-anchor", function(d) { return d.angle > Math.PI ? "end" : null; })
+      .style("font-weight", "bold")
+      .text(function(d) { return formatSize(d.value); });
+
+group.append("text").filter(function(d) { return d.endAngle - d.startAngle > Math.PI/40;})
+      .each(function(d) { d.angle = (d.startAngle + d.endAngle) / 2 + 0.035; })
+      .attr("dy", ".35em")
+      .attr("transform", function(d) {
+        return "rotate(" + (d.angle * 180 / Math.PI - 90) + ")"
+            + "translate(" + (outerRadius + 10) + ")"
+            + (d.angle > Math.PI ? "rotate(180)" : "");
+      })
+      .style("text-anchor", function(d) { return d.angle > Math.PI ? "end" : null; })
+      .style("font-weight", "bold")
+      .text(function(d) { return domains[d.index]; });
+
+
+g.append("g")
+    .attr("class", "ribbons")
+  .selectAll("path")
+    .data(function(chords) { return chords; })
+  .enter().append("path")
+    .attr("d", ribbon)
+    .style("fill", function (d) { return color(d.target.index); } )
+    .style("stroke", function(d) { return d3.rgb(color(d.target.index)).darker(); });
+
+};
+// Returns an array of tick angles and values for a given group and step.
+function groupTicks(d, step) {
+  var k = d.value / (d.endAngle - d.startAngle) ;
+  return d3.range(d.endAngle - d.startAngle,0 , -2*Math.PI/100).map(function(v) {
+    return {value: v*k, angle: v + d.startAngle};
+  });
+}
+
+</script>
+    <script>
+    
+    var myTimeout;
+    
+    var flowsMap = new Map();
+    var fs;
+    var timeoutId;
+
+    var ws = new WebSocket("ws://192.168.120.1:4201/");
+
+    ws.onmessage = function(event) {
+      var newFlow = angular.fromJson(event.data);
+      flowsMap.set(newFlow.src, newFlow);
+      if (timeoutId) {
+        window.clearTimeout(timeoutId);
+      }
+      timeoutId = window.setTimeout(calculateFlows, 5000);
+    };
+
+    var calculateFlows=function() {
+      var scope = angular.element(document.querySelector("#flows")).scope();
+      scope.$apply(function() {
+      var newFlows = []
+        for (var f of flowsMap.values()) {
+          newFlows.push(f);
+        }
+        fs = newFlows;
+        scope.flows = newFlows;
+        circos();
+      });
+    };
   </script>
   </head>
 
   <body>
-    <div>
+  <div style="position:absolute;">
+  <img src="dr_logo.png">
+  </div>
+  <div>
+    <svg style="display: block;margin-right: auto; margin-left: auto;" width="800" height="800"></svg>
+</div>
+
+  <div style="background-color: #F2F2F2;padding: 5px;border-radius: 5px;margin-top: 50px;">
     <input type="search" ng-model="q" placeholder="filter..." />
-    <input type="search" ng-model="p" placeholder="filter..." />
-      <table id="flows" ng-init='flows = []'>
+
+   
+      <table style="font-size: 0.9em; background-color: #DDDDDD; border-radius: 4px;" id="flows" ng-init='flows = []'>
       <thead>
-        <th>Source</th>
-        <th>Direction</th>
+        <th style="width:120px;">Source</th>
+        <th style="width:200px;">Domain</th>
+        <th style="width:120px;">Direction</th>
         <th>Destination</th>
       </thead>
       <tbody>
         <tr ng-repeat="src in flows | filter:q as results">
-          <td>{{src.src}}</td><td>{{src.dir}}</td>
+          <td>{{src.src}}</td><td>{{src.domain}}</td><td>{{src.dir}}</td>
           <td>
-            <table>
-            <tr ng-repeat="flow in src.flows | filter:p">
-             <td>{{flow.dst}}</td><td>{{flow.bytes | Filesize}}</td>
+            <table style="font-size: 0.9em;">
+
+            <tr ng-if="src.dir == 'Out'" ng-repeat="flow in src.flows | filter:q">
+             <td style="width:100px;">{{flow.dst}}</td><td style="width:300px">{{flow.domain}}</td><td style="width:50px;">{{flow.bytes | Filesize}}</td>
+            </tr>
+            <tr ng-if="src.dir == 'In'" ng-repeat="flow in src.flows">
+             <td style="width:100px;">{{flow.dst}}</td><td style="width:300px">{{flow.domain}}</td><td style="width:50px;">{{flow.bytes | Filesize}}</td>
             </tr>
             </table>
           </td>
