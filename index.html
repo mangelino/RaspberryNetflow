@@ -10,7 +10,7 @@ var myApp = angular.module('myApp', ['filters']);
 
 myApp.controller('MainController', ['$scope', function($scope) {
   $scope.splash = true;
-  $scope.dataFilter = "";
+  $scope.dataFilter = undefined;
 
   $scope.setFilter = function() {
     $scope.dataFilter = $scope.q;
@@ -185,8 +185,46 @@ g.append("g")
     var flowsMap = new Map();
     var fs;
     var timeoutId;
+    var wsCheckTimeoutId;
+    var ws;
+    var initWS = function () {
+      ws = new WebSocket("ws://192.168.120.1:4201/");
 
-    var ws = new WebSocket("ws://192.168.120.1:4201/");
+      ws.onerror = function () {
+        showSplash(true);
+        if (wsCheckTimeoutId) {
+          window.clearTimeout(wsCheckTimeoutId);
+        }
+
+         wsCheckTimeoutId = window.setTimeout(initWS, 10000);
+      }
+
+      ws.onopen = function () {
+        if (wsCheckTimeoutId) {
+          window.clearTimeout(wsCheckTimeoutId);
+        }
+        showSplash(false);
+      }
+
+      ws.onclose = function () {
+        showSplash(true);
+        if (wsCheckTimeoutId) {
+          window.clearTimeout(wsCheckTimeoutId);
+        }
+        wsCheckTimeoutId = window.setTimeout(initWS, 10000);
+      }
+
+      ws.onmessage = function(event) {
+        var newFlow = angular.fromJson(event.data);
+        flowsMap.set(newFlow.src, newFlow);
+        if (timeoutId) {
+          window.clearTimeout(timeoutId);
+        }
+        timeoutId = window.setTimeout(calculateFlows, 5000);
+      };
+    };
+
+    initWS();
     
     var showSplash = function(hide) {
       var scope = angular.element(document.querySelector("#body")).scope();
@@ -195,27 +233,7 @@ g.append("g")
       });
     }
 
-    ws.onerror = function () {
-      showSplash(true);
-      window.setTimeout(function() { ws = new WebSocket("ws://192.168.120.1:4201/"); }, 10000);
-    }
-
-    ws.onopen = function () {
-      showSplash(false);
-    }
-
-    ws.onclose = function () {
-      showSplash(true);
-    }
-
-    ws.onmessage = function(event) {
-      var newFlow = angular.fromJson(event.data);
-      flowsMap.set(newFlow.src, newFlow);
-      if (timeoutId) {
-        window.clearTimeout(timeoutId);
-      }
-      timeoutId = window.setTimeout(calculateFlows, 5000);
-    };
+    
 
     var calculateFlows=function() {
       var scope = angular.element(document.querySelector("#flows")).scope();
